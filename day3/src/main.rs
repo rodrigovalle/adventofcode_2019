@@ -35,7 +35,8 @@ fn challenge(mut input: impl Iterator<Item = String>) {
         let (h_lines, v_lines) = separate_and_sort_lines(line1);
 
         let h_tree = SegmentTree::new(h_lines);
-        println!("{:?}", h_tree);
+        let v_tree = SegmentTree::new(v_lines);
+        println!("{:#?}", h_tree);
     } else {
         panic!("Not enough wires given");
     }
@@ -60,7 +61,7 @@ impl WireVec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 enum Line {
     Vertical {
         x_coordinate: i32,
@@ -171,6 +172,17 @@ enum UpdateParent {
 struct Node {
     int_start: i32,
     int_end: i32,
+    lines: Vec<Line>,
+}
+
+impl Default for Node {
+    fn default() -> Node {
+        Node {
+            int_start: 0,
+            int_end: 0,
+            lines: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -182,7 +194,7 @@ impl SegmentTree {
     fn new(segments: Vec<Line>) -> SegmentTree {
         // find elementary intervals
         let mut sorted_points = Vec::with_capacity(2 * segments.len());
-        for line in segments {
+        for line in &segments {
             let (start, end) = line.get_segment();
             if let Err(idx) = sorted_points.binary_search(start) {
                 sorted_points.insert(idx, *start);
@@ -192,17 +204,24 @@ impl SegmentTree {
             }
         }
 
-        // TODO: split this out into a separate function call
-        // construct a balanced binary tree
-        // each leaf represents an interval on the number line
-        // n_leaves: an interval between each point and intervals to +/-inf
-        // n_internal: # internal nodes in a binary tree is equal to leaves - 1
+        let mut tree = Self::construct_tree(sorted_points);
+        for line in segments {
+            Self::insert(line, &mut tree, 0);
+        }
+
+        SegmentTree { tree }
+    }
+
+    // construct a balanced binary tree
+    // each leaf represents an interval on the number line
+    // n_leaves: an interval between each point and intervals to +/-inf
+    // n_internal: # internal nodes in a binary tree is equal to leaves - 1
+    fn construct_tree(sorted_points: Vec<i32>) -> Vec<Node> {
         let n_leaves = 2 * sorted_points.len() + 1;
         let n_internal = n_leaves - 1;
         let mut tree = vec![
             Node {
-                int_start: 0,
-                int_end: 0
+                ..Default::default()
             };
             n_internal
         ];
@@ -212,10 +231,12 @@ impl SegmentTree {
             let open_int = Node {
                 int_start: prev,
                 int_end: *point,
+                ..Default::default()
             };
             let closed_int = Node {
                 int_start: *point,
                 int_end: *point,
+                ..Default::default()
             };
             prev = *point;
             tree.push(open_int);
@@ -234,10 +255,11 @@ impl SegmentTree {
         let open_int = Node {
             int_start: prev,
             int_end: std::i32::MAX,
+            ..Default::default()
         };
         tree.push(open_int);
 
-        SegmentTree { tree }
+        tree
     }
 
     // given a child node, recurse up the tree to the root setting intervals
@@ -287,6 +309,23 @@ impl SegmentTree {
                 }
             }
         }
+    }
+
+    fn insert(line: Line, tree: &mut Vec<Node>, root: usize) {
+        let (start, end) = line.get_segment();
+        if let Some(node) = tree.get_mut(root) {
+            if node.int_start < *start && *end < node.int_end {
+                node.lines.push(line);
+                let left_child = 2 * root + 1;
+                let right_child = 2 * root + 2;
+                Self::insert(line, tree, left_child);
+                Self::insert(line, tree, right_child);
+            }
+        }
+    }
+
+    fn query(&self, p: i32) -> Vec<Line> {
+        Vec::new()
     }
 }
 
