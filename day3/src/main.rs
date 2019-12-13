@@ -19,10 +19,10 @@ fn read_input(filename: Option<&str>) -> impl Iterator<Item = String> {
 fn main() {
     let filename = env::args().nth(1);
     let input = read_input(filename.as_ref().map(String::as_str));
-    challenge(input);
+    println!("{}", challenge(input));
 }
 
-fn challenge(mut input: impl Iterator<Item = String>) {
+fn challenge(mut input: impl Iterator<Item = String>) -> i32 {
     if let (Some(str1), Some(str2)) = (input.next(), input.next()) {
         // transform from string into WireVec enums
         let wire1: Vec<WireVec> = str1.split(',').map(WireVec::new).collect();
@@ -37,6 +37,7 @@ fn challenge(mut input: impl Iterator<Item = String>) {
         let h_tree = SegmentTree::new(h_lines);
         let v_tree = SegmentTree::new(v_lines);
         println!("{:#?}", h_tree);
+        0
     } else {
         panic!("Not enough wires given");
     }
@@ -316,6 +317,7 @@ impl SegmentTree {
         if let Some(node) = tree.get_mut(root) {
             if node.int_start < *start && *end < node.int_end {
                 node.lines.push(line);
+            } else {
                 let left_child = 2 * root + 1;
                 let right_child = 2 * root + 2;
                 Self::insert(line, tree, left_child);
@@ -334,8 +336,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test() {
-        let input = vec!["line1", "line2", "line3"];
-        // assert_eq!(challenge(input.iter()), <some result>)
+    fn test1() {
+        let input = vec!["R8,U5,L5,D3", "U7,R6,D4,L4"];
+        assert_eq!(challenge(input.iter()), 6);
+    }
+
+    #[test]
+    fn test2() {
+        let input = vec![
+            "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51",
+            "U98,R91,D20,R16,D67,R40,U7,R15,U6,R7",
+        ];
+        assert_eq!(challenge(input.iter()), 135);
     }
 }
