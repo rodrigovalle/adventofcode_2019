@@ -62,7 +62,7 @@ impl WireVec {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum Line {
     Vertical {
         x_coordinate: i32,
@@ -84,11 +84,31 @@ impl Line {
         }
     }
 
-    fn get_segment(&self) -> (&i32, &i32) {
+    fn get_interval(&self) -> Interval {
         match self {
-            Line::Vertical { y_start, y_end, .. } => (y_start, y_end),
-            Line::Horizontal { x_start, x_end, .. } => (x_start, x_end),
+            Line::Vertical { y_start, y_end, .. } => Interval(*y_start, *y_end),
+            Line::Horizontal { x_start, x_end, .. } => {
+                Interval(*x_start, *x_end)
+            }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Interval(i32, i32);
+
+impl Interval {
+    fn contains(&self, rhs: &Interval) -> bool {
+        self.0 <= rhs.0 && rhs.1 <= self.1
+    }
+
+    fn intersects(&self, rhs: &Interval) -> bool {
+        (self.0 <= rhs.0 && rhs.0 <= self.1)
+            || (self.0 <= rhs.1 && rhs.1 <= self.1)
+    }
+
+    fn contains_point(&self, pt: i32) -> bool {
+        self.0 < pt && pt < self.1
     }
 }
 
@@ -171,16 +191,14 @@ enum UpdateParent {
 
 #[derive(Clone, Debug)]
 struct Node {
-    int_start: i32,
-    int_end: i32,
+    interval: Interval,
     lines: Vec<Line>,
 }
 
 impl Default for Node {
     fn default() -> Node {
         Node {
-            int_start: 0,
-            int_end: 0,
+            interval: Interval(0, 0),
             lines: Vec::new(),
         }
     }
@@ -192,16 +210,16 @@ struct SegmentTree {
 }
 
 impl SegmentTree {
-    fn new(segments: Vec<Line>) -> SegmentTree {
+    pub fn new(segments: Vec<Line>) -> SegmentTree {
         // find elementary intervals
         let mut sorted_points = Vec::with_capacity(2 * segments.len());
         for line in &segments {
-            let (start, end) = line.get_segment();
-            if let Err(idx) = sorted_points.binary_search(start) {
-                sorted_points.insert(idx, *start);
+            let Interval(start, end) = line.get_interval();
+            if let Err(idx) = sorted_points.binary_search(&start) {
+                sorted_points.insert(idx, start);
             }
-            if let Err(idx) = sorted_points.binary_search(end) {
-                sorted_points.insert(idx, *end);
+            if let Err(idx) = sorted_points.binary_search(&end) {
+                sorted_points.insert(idx, end);
             }
         }
 
@@ -224,41 +242,61 @@ impl SegmentTree {
             Node {
                 ..Default::default()
             };
-            n_internal
+            n_internal + n_leaves
         ];
 
+        // If the leaf nodes are split amongst the two lower levels of a
+        // complete binary tree, we start by filling out the level furthest from
+        // the root first followed by the level above it. The level furthest
+        // from the root starts `split` entries into the array, and we then wrap
+        // around at `n_leaves` to start filling in the level above. This
+        // maintains the invariant that leaf nodes, when viewed left to right in
+        // the resulting binary tree, form partitions of the entire number line
+        // in order.
+        let split = n_leaves.next_power_of_two() - n_leaves;
         let mut prev: i32 = std::i32::MIN;
+
         for (i, point) in sorted_points.iter().enumerate() {
             let open_int = Node {
-                int_start: prev,
-                int_end: *point,
+                interval: Interval(prev, *point),
                 ..Default::default()
             };
             let closed_int = Node {
-                int_start: *point,
-                int_end: *point,
+                interval: Interval(*point, *point),
                 ..Default::default()
             };
             prev = *point;
-            tree.push(open_int);
-            tree.push(closed_int);
+
+            let leaf_index_1 = (split + 2 * i) % n_leaves;
+            let leaf_index_2 = (split + 2 * i + 1) % n_leaves;
+            tree[n_internal + leaf_index_1] = open_int;
+            tree[n_internal + leaf_index_2] = closed_int;
+
             Self::update_parents(
                 &mut tree,
-                n_internal + 2 * i,
+                n_internal + leaf_index_1,
                 UpdateParent::Either,
             );
             Self::update_parents(
                 &mut tree,
-                n_internal + 2 * i + 1,
+                n_internal + leaf_index_2,
                 UpdateParent::Either,
             );
         }
+
         let open_int = Node {
-            int_start: prev,
-            int_end: std::i32::MAX,
+            interval: Interval(prev, std::i32::MAX),
             ..Default::default()
         };
-        tree.push(open_int);
+
+        let leaf_index = (split + 2 * sorted_points.len()) % n_leaves;
+        tree[n_internal + leaf_index] = open_int;
+
+        Self::update_parents(
+            &mut tree,
+            n_internal + leaf_index,
+            UpdateParent::Either,
+        );
 
         tree
     }
@@ -282,26 +320,26 @@ impl SegmentTree {
         match opt {
             UpdateParent::OnlyLeft => {
                 if is_left_child {
-                    tree[parent_i].int_start = tree[child_i].int_start;
+                    tree[parent_i].interval.0 = tree[child_i].interval.0;
                     Self::update_parents(tree, parent_i, opt);
                 }
             }
             UpdateParent::OnlyRight => {
                 if !is_left_child {
-                    tree[parent_i].int_end = tree[child_i].int_end;
+                    tree[parent_i].interval.1 = tree[child_i].interval.1;
                     Self::update_parents(tree, parent_i, opt);
                 }
             }
             UpdateParent::Either => {
                 if is_left_child {
-                    tree[parent_i].int_start = tree[child_i].int_start;
+                    tree[parent_i].interval.0 = tree[child_i].interval.0;
                     Self::update_parents(
                         tree,
                         parent_i,
                         UpdateParent::OnlyLeft,
                     );
                 } else {
-                    tree[parent_i].int_end = tree[child_i].int_end;
+                    tree[parent_i].interval.1 = tree[child_i].interval.1;
                     Self::update_parents(
                         tree,
                         parent_i,
@@ -313,21 +351,41 @@ impl SegmentTree {
     }
 
     fn insert(line: Line, tree: &mut Vec<Node>, root: usize) {
-        let (start, end) = line.get_segment();
+        let interval = line.get_interval();
         if let Some(node) = tree.get_mut(root) {
-            if node.int_start < *start && *end < node.int_end {
+            if interval.contains(&node.interval) {
                 node.lines.push(line);
             } else {
-                let left_child = 2 * root + 1;
-                let right_child = 2 * root + 2;
-                Self::insert(line, tree, left_child);
-                Self::insert(line, tree, right_child);
+                let left_child_i = 2 * root + 1;
+                if let Some(left_child) = tree.get(left_child_i) {
+                    if interval.intersects(&left_child.interval) {
+                        Self::insert(line, tree, left_child_i);
+                    }
+                }
+                let right_child_i = 2 * root + 2;
+                if let Some(right_child) = tree.get(right_child_i) {
+                    if interval.intersects(&right_child.interval) {
+                        Self::insert(line, tree, right_child_i);
+                    }
+                }
             }
         }
     }
 
-    fn query(&self, p: i32) -> Vec<Line> {
-        Vec::new()
+    pub fn query(&self, p: i32) -> Vec<Line> {
+        let mut ret = Vec::new();
+        Self::_query(p, &self.tree, 0, &mut ret);
+        ret
+    }
+
+    fn _query(p: i32, tree: &Vec<Node>, root: usize, ret: &mut Vec<Line>) {
+        if let Some(root_node) = tree.get(root) {
+            if root_node.interval.contains_point(p) {
+                ret.extend_from_slice(&root_node.lines);
+                Self::_query(p, tree, 2 * root + 1, ret);
+                Self::_query(p, tree, 2 * root + 2, ret);
+            }
+        }
     }
 }
 
@@ -348,5 +406,41 @@ mod tests {
             "U98,R91,D20,R16,D67,R40,U7,R15,U6,R7",
         ];
         assert_eq!(challenge(input.iter()), 135);
+    }
+
+    #[test]
+    fn test_segment_tree() {
+        let line1 = Line::Horizontal {
+            x_start: 0,
+            x_end: 10,
+            y_coordinate: 0,
+        };
+        let line2 = Line::Horizontal {
+            x_start: 5,
+            x_end: 15,
+            y_coordinate: 0,
+        };
+
+        let segments = vec![line1.clone(), line2.clone()];
+        let tree = SegmentTree::new(segments);
+
+        let q = tree.query(-1);
+        assert!(q.is_empty());
+
+        let q = tree.query(1);
+        assert_eq!(q.len(), 1);
+        assert!(q.contains(&line1));
+
+        let q = tree.query(6);
+        assert_eq!(q.len(), 2);
+        assert!(q.contains(&line1));
+        assert!(q.contains(&line2));
+
+        let q = tree.query(11);
+        assert_eq!(q.len(), 1);
+        assert!(q.contains(&line2));
+
+        let q = tree.query(20);
+        assert!(q.is_empty());
     }
 }
