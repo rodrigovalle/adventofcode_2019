@@ -1,8 +1,10 @@
+use std::collections::hash_map::RandomState;
 use std::collections::HashSet;
 use std::env;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::iter::FromIterator;
 
 fn read_input(filename: Option<&str>) -> impl Iterator<Item = String> {
     let filename: &str = filename.unwrap_or("input.txt");
@@ -19,10 +21,10 @@ fn read_input(filename: Option<&str>) -> impl Iterator<Item = String> {
 fn main() {
     let filename = env::args().nth(1);
     let input = read_input(filename.as_ref().map(String::as_str));
-    println!("{}", challenge(input));
+    println!("{:?}", challenge(input));
 }
 
-fn challenge(mut input: impl Iterator<Item = String>) -> i32 {
+fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
     if let (Some(str1), Some(str2)) = (input.next(), input.next()) {
         // transform from string into WireVec enums
         let wire1: Vec<WireVec> = str1.split(',').map(WireVec::new).collect();
@@ -32,12 +34,105 @@ fn challenge(mut input: impl Iterator<Item = String>) -> i32 {
         let line1: Vec<Line> = wirevecs_to_lines(wire1);
         let line2: Vec<Line> = wirevecs_to_lines(wire2);
 
-        let (h_lines, v_lines) = separate_and_sort_lines(line1);
+        let (mut h_lines, mut v_lines) = separate_and_sort_lines(line1);
+        let h_tree = SegmentTree::new(h_lines.clone());
+        let v_tree = SegmentTree::new(v_lines.clone());
+        h_lines.sort_by_key(|l| l.get_perpendicular_coordinate());
+        v_lines.sort_by_key(|l| l.get_perpendicular_coordinate());
 
-        let h_tree = SegmentTree::new(h_lines);
-        let v_tree = SegmentTree::new(v_lines);
-        println!("{:#?}", h_tree);
-        0
+        let mut min_dist_opt: Option<i32> = None;
+        for line in line2 {
+            match line {
+                Line::Horizontal {
+                    y_coordinate,
+                    x_start,
+                    x_end,
+                } => {
+                    let possible_y_intersects = v_tree.query(y_coordinate);
+                    let mut start = v_lines
+                        .binary_search_by_key(&x_start, |l| {
+                            l.get_perpendicular_coordinate()
+                        })
+                        .unwrap_or_else(|x| x);
+                    let mut end = v_lines
+                        .binary_search_by_key(&x_end, |l| {
+                            l.get_perpendicular_coordinate()
+                        })
+                        .unwrap_or_else(|x| x);
+                    if start > end {
+                        let tmp = start;
+                        start = end;
+                        end = tmp;
+                    }
+                    let A: HashSet<&Line, RandomState> =
+                        HashSet::from_iter(possible_y_intersects.iter());
+                    let B = HashSet::from_iter(v_lines[start..end].iter());
+                    let result = A.intersection(&B);
+                    println!("h_line: {} {} {}", x_start, x_end, y_coordinate);
+                    println!("y_intersects: {:?}", A);
+                    println!("x_intersects: {:?}", B);
+                    println!("result: {:?}", result);
+                    result.for_each(|x| match x {
+                        Line::Vertical { x_coordinate, .. } => {
+                            let dist = y_coordinate.abs() + x_coordinate.abs();
+                            if let Some(min_dist) = min_dist_opt {
+                                if dist < min_dist {
+                                    min_dist_opt = Some(dist)
+                                }
+                            } else {
+                                min_dist_opt = Some(dist)
+                            }
+                        }
+                        _ => {}
+                    });
+                }
+                Line::Vertical {
+                    x_coordinate,
+                    y_start,
+                    y_end,
+                } => {
+                    let possible_x_intersects = h_tree.query(x_coordinate);
+                    let mut start = h_lines
+                        .binary_search_by_key(&y_start, |l| {
+                            l.get_perpendicular_coordinate()
+                        })
+                        .unwrap_or_else(|x| x);
+                    let mut end = h_lines
+                        .binary_search_by_key(&y_end, |l| {
+                            l.get_perpendicular_coordinate()
+                        })
+                        .unwrap_or_else(|x| x);
+                    if start > end {
+                        let tmp = start;
+                        start = end;
+                        end = tmp;
+                    }
+                    let A: HashSet<&Line, RandomState> =
+                        HashSet::from_iter(possible_x_intersects.iter());
+                    let B = HashSet::from_iter(h_lines[start..end].iter());
+                    let result = A.intersection(&B);
+                    println!("v_line: {} {} {}", y_start, y_end, x_coordinate);
+                    println!("x_intersects: {:?}", A);
+                    println!("y_intersects: {:?}", B);
+                    println!("result: {:?}", result);
+                    result.for_each(|x| match x {
+                        Line::Horizontal { y_coordinate, .. } => {
+                            let dist = x_coordinate.abs() + y_coordinate.abs();
+                            if let Some(min_dist) = min_dist_opt {
+                                if dist < min_dist {
+                                    min_dist_opt = Some(dist)
+                                }
+                            } else {
+                                min_dist_opt = Some(dist)
+                            }
+                        }
+                        _ => {}
+                    });
+                }
+            }
+        }
+
+        min_dist_opt
     } else {
         panic!("Not enough wires given");
     }
@@ -62,7 +157,7 @@ impl WireVec {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
 enum Line {
     Vertical {
         x_coordinate: i32,
@@ -86,29 +181,43 @@ impl Line {
 
     fn get_interval(&self) -> Interval {
         match self {
-            Line::Vertical { y_start, y_end, .. } => Interval(*y_start, *y_end),
+            Line::Vertical { y_start, y_end, .. } => Interval::new(*y_start, *y_end),
             Line::Horizontal { x_start, x_end, .. } => {
-                Interval(*x_start, *x_end)
+                Interval::new(*x_start, *x_end)
             }
         }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Interval(i32, i32);
+struct Interval {
+    start: i32,
+    end: i32,
+}
 
 impl Interval {
+    fn new(start: i32, end: i32) -> Interval {
+        if start > end {
+            Interval {
+                start: end,
+                end: start,
+            }
+        } else {
+            Interval { start, end }
+        }
+    }
+
     fn contains(&self, rhs: &Interval) -> bool {
-        self.0 <= rhs.0 && rhs.1 <= self.1
+        self.start <= rhs.start && rhs.end <= self.end
     }
 
     fn intersects(&self, rhs: &Interval) -> bool {
-        (self.0 <= rhs.0 && rhs.0 <= self.1)
-            || (self.0 <= rhs.1 && rhs.1 <= self.1)
+        (self.start <= rhs.start && rhs.start <= self.end)
+            || (self.start <= rhs.end && rhs.end <= self.end)
     }
 
     fn contains_point(&self, pt: i32) -> bool {
-        self.0 < pt && pt < self.1
+        self.start < pt && pt < self.end
     }
 }
 
@@ -198,7 +307,7 @@ struct Node {
 impl Default for Node {
     fn default() -> Node {
         Node {
-            interval: Interval(0, 0),
+            interval: Interval { start: 0, end: 0 },
             lines: Vec::new(),
         }
     }
@@ -214,7 +323,7 @@ impl SegmentTree {
         // find elementary intervals
         let mut sorted_points = Vec::with_capacity(2 * segments.len());
         for line in &segments {
-            let Interval(start, end) = line.get_interval();
+            let Interval { start, end } = line.get_interval();
             if let Err(idx) = sorted_points.binary_search(&start) {
                 sorted_points.insert(idx, start);
             }
@@ -258,11 +367,11 @@ impl SegmentTree {
 
         for (i, point) in sorted_points.iter().enumerate() {
             let open_int = Node {
-                interval: Interval(prev, *point),
+                interval: Interval::new(prev, *point),
                 ..Default::default()
             };
             let closed_int = Node {
-                interval: Interval(*point, *point),
+                interval: Interval::new(*point, *point),
                 ..Default::default()
             };
             prev = *point;
@@ -285,7 +394,7 @@ impl SegmentTree {
         }
 
         let open_int = Node {
-            interval: Interval(prev, std::i32::MAX),
+            interval: Interval::new(prev, std::i32::MAX),
             ..Default::default()
         };
 
@@ -320,26 +429,26 @@ impl SegmentTree {
         match opt {
             UpdateParent::OnlyLeft => {
                 if is_left_child {
-                    tree[parent_i].interval.0 = tree[child_i].interval.0;
+                    tree[parent_i].interval.start = tree[child_i].interval.start;
                     Self::update_parents(tree, parent_i, opt);
                 }
             }
             UpdateParent::OnlyRight => {
                 if !is_left_child {
-                    tree[parent_i].interval.1 = tree[child_i].interval.1;
+                    tree[parent_i].interval.end = tree[child_i].interval.end;
                     Self::update_parents(tree, parent_i, opt);
                 }
             }
             UpdateParent::Either => {
                 if is_left_child {
-                    tree[parent_i].interval.0 = tree[child_i].interval.0;
+                    tree[parent_i].interval.start = tree[child_i].interval.start;
                     Self::update_parents(
                         tree,
                         parent_i,
                         UpdateParent::OnlyLeft,
                     );
                 } else {
-                    tree[parent_i].interval.1 = tree[child_i].interval.1;
+                    tree[parent_i].interval.end = tree[child_i].interval.end;
                     Self::update_parents(
                         tree,
                         parent_i,
@@ -395,17 +504,44 @@ mod tests {
 
     #[test]
     fn test1() {
-        let input = vec!["R8,U5,L5,D3", "U7,R6,D4,L4"];
-        assert_eq!(challenge(input.iter()), 6);
+        let input = vec!["R8,U5,L5,D3".to_string(), "U7,R6,D4,L4".to_string()];
+        assert_eq!(challenge(input.into_iter()), Some(6));
+    }
+
+    #[test]
+    fn test_segment_tree2() {
+        let input = vec![
+            WireVec::Right(8),
+            WireVec::Up(5),
+            WireVec::Left(5),
+            WireVec::Down(3),
+        ];
+        let line1 = wirevecs_to_lines(input);
+        let (mut h_lines, mut v_lines) = separate_and_sort_lines(line1);
+        println!("{:?}", h_lines);
+        let h_tree = SegmentTree::new(h_lines.clone());
+
+        let result = h_tree.query(6);
+        println!("{:?}", result);
+        assert_eq!(result.len(), 2);
     }
 
     #[test]
     fn test2() {
         let input = vec![
-            "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51",
-            "U98,R91,D20,R16,D67,R40,U7,R15,U6,R7",
+            "R75,D30,R83,U83,L12,D49,R71,U7,L72".to_string(),
+            "U62,R66,U55,R34,D71,R55,D58,R83".to_string(),
         ];
-        assert_eq!(challenge(input.iter()), 135);
+        assert_eq!(challenge(input.into_iter()), Some(159));
+    }
+
+    #[test]
+    fn test3() {
+        let input = vec![
+            "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51".to_string(),
+            "U98,R91,D20,R16,D67,R40,U7,R15,U6,R7".to_string(),
+        ];
+        assert_eq!(challenge(input.into_iter()), Some(135));
     }
 
     #[test]
