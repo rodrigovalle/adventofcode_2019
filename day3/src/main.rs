@@ -87,18 +87,6 @@ fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
         }
     }
 
-    // print_array
-    // for j in (0..height).rev() {
-    //     for i in 0..width {
-    //         if arr[(width * j) + i] {
-    //             print!("1");
-    //         } else {
-    //             print!("0");
-    //         }
-    //     }
-    //     println!();
-    // }
-
     // plot wire 2
     // start at (0, 0) in array coordinates
     let (mut x, mut y) = (-min_x, -min_y);
@@ -163,8 +151,6 @@ impl WireVec {
 
 #[cfg(test)]
 mod tests {
-    //#![feature(trace_macros)]
-    //trace_macros!(true);
     use super::*;
 
     macro_rules! str_vec {
@@ -186,6 +172,7 @@ mod tests {
         assert_eq!(challenge(input.into_iter()), Some(30));
     }
 
+    #[test]
     fn test3() {
         let input = str_vec![
             "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51",
