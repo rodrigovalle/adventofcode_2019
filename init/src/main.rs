@@ -18,20 +18,24 @@ fn read_input(filename: Option<&str>) -> impl Iterator<Item = String> {
 fn main() {
     let filename = env::args().nth(1);
     let input = read_input(filename.as_ref().map(String::as_str));
-    challenge(input);
+    println!("{:?}", challenge(input));
 }
 
 fn challenge(input: impl Iterator<Item = String>) {
-    // TODO: add solution here
+    unimplemented!();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    macro_rules! string_vec {
+        ( $($s:expr),* $(,)? ) => ( vec![$($s.to_string()),*] )
+    }
+
     #[test]
     fn test() {
-        let input = vec!["line1", "line2", "line3"];
-        // assert_eq!(challenge(input.iter()), <some result>)
+        let input = string_vec!["line 1", "line 2", "line 3"];
+        assert_eq!(challenge(input.into_iter()), ());
     }
 }
