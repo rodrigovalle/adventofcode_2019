@@ -60,11 +60,12 @@ fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
     let (min_x, max_x, min_y, max_y) = find_array_dimensions(&wire1);
     let width = (max_x - min_x) as usize + 1;
     let height = (max_y - min_y) as usize + 1;
-    let mut arr = vec![false; width * height];
+    let mut arr = vec![(false, 0); width * height];
 
     // plot wire 1
     // start at (0, 0) in array coordinates
     let (mut x, mut y) = (-min_x, -min_y);
+    let mut steps = 0;
     for dir in wire1 {
         let (move_x, move_y) = match dir {
             WireVec::Up(d) => (0, d),
@@ -76,12 +77,13 @@ fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
         let (end_x, end_y) = (x + move_x, y + move_y);
         let (dx, dy) = (move_x.signum(), move_y.signum());
         loop {
-            arr[width * y as usize + x as usize] = true;
+            arr[width * y as usize + x as usize] = (true, steps);
             if x == end_x && y == end_y {
                 break;
             }
             x += dx;
             y += dy;
+            steps += 1;
         }
     }
 
@@ -100,7 +102,8 @@ fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
     // plot wire 2
     // start at (0, 0) in array coordinates
     let (mut x, mut y) = (-min_x, -min_y);
-    let mut manhattan_min = None;
+    let mut steps = 0;
+    let mut steps_min = None;
     for dir in wire2 {
         let (move_x, move_y) = match dir {
             WireVec::Up(d) => (0, d),
@@ -114,14 +117,15 @@ fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
         loop {
             // check for intersections with wire 1
             let i = width as i32 * y + x;
-            if i >= 0 && *arr.get(i as usize).unwrap_or(&false) {
-                // convert to wire coordinates instead of array coordinates
-                let dist = (x + min_x).abs() + (y + min_y).abs();
-                if dist != 0 {
-                    manhattan_min = match manhattan_min {
-                        Some(cur_min) if dist < cur_min => Some(dist),
-                        None => Some(dist),
-                        _ => manhattan_min,
+            if let Some((set, wire1_steps)) = arr.get(i as usize) {
+                if *set {
+                    let dist = steps + wire1_steps;
+                    if dist != 0 {
+                        steps_min = match steps_min {
+                            Some(cur_min) if dist < cur_min => Some(dist),
+                            None => Some(dist),
+                            _ => steps_min,
+                        }
                     }
                 }
             }
@@ -130,10 +134,11 @@ fn challenge(mut input: impl Iterator<Item = String>) -> Option<i32> {
             }
             x += dx;
             y += dy;
+            steps += 1;
         }
     }
 
-    manhattan_min
+    steps_min
 }
 
 #[derive(Debug)]
@@ -172,18 +177,20 @@ mod tests {
             "R75,D30,R83,U83,L12,D49,R71,U7,L72",
             "U62,R66,U55,R34,D71,R55,D58,R83",
         ];
-        assert_eq!(challenge(input.into_iter()), Some(159));
+        assert_eq!(challenge(input.into_iter()), Some(610));
     }
 
     #[test]
     fn test2() {
-        let input = str_vec!["R8,U5,L5,D3", "U7,R6,D4,L4",];
-        assert_eq!(challenge(input.into_iter()), Some(6));
+        let input = str_vec!["R8,U5,L5,D3", "U7,R6,D4,L4"];
+        assert_eq!(challenge(input.into_iter()), Some(30));
     }
 
-    #[test]
     fn test3() {
-        let input = str_vec!["L8,D5,R5,U3", "D7,L6,U4,R4"];
-        assert_eq!(challenge(input.into_iter()), Some(6));
+        let input = str_vec![
+            "R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51",
+            "U98,R91,D20,R16,D67,R40,U7,R15,U6,R7",
+        ];
+        assert_eq!(challenge(input.into_iter()), Some(410));
     }
 }
